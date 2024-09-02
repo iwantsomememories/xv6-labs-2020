@@ -34,7 +34,7 @@ void find(char *path, char *file_name){
 
         while (read(fd, &de, sizeof(de)) == sizeof(de)) 
         {
-            if (de.inum == 0 || strcmp(de.name, ".") == 0 || strcmp(de.name, "..") == 0)
+            if (de.inum == 0)
             {
                 continue;
             }
@@ -46,19 +46,19 @@ void find(char *path, char *file_name){
                 continue;
             }
 
-            if (strcmp(de.name, file_name) == 0)
+            if (strcmp(p, file_name) == 0)
             {
                 printf("%s\n", buf);
-            } else if (st.type == T_DIR)
+                // 不在“.”和“..”目录中递归
+            } else if (st.type == T_DIR && strcmp(p, ".") != 0 && strcmp(p, "..") != 0)
             {
-                char sub_path[512];
-                memmove(sub_path, buf, strlen(buf));
-                find(sub_path, file_name);
+                find(buf, file_name);
             }
         }
         break;
     default:
-        fprintf(2, "find: path must be a directory");
+        // find的第一个参数必须是目录
+        fprintf(2, "usage: find <directory> <filename>\n");
         break;
     }
 
@@ -71,12 +71,12 @@ main(int argc, char *argv[])
 {
     if (argc < 3)
     {
-        fprintf(2, "Usage: find path pattern");
+        fprintf(2, "usage: find <directory> <filename>\n");
         exit(1);
     }
 
     char *path = argv[1];
     char *file_name = argv[2];
     find(path, file_name);
-    return 0;
+    exit(0);
 }
