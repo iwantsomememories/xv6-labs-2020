@@ -696,3 +696,19 @@ procdump(void)
     printf("\n");
   }
 }
+
+// Collect the number of processes
+uint64
+free_proc(void){
+  struct proc *p;
+  uint64 count = 0;
+
+  for(p = proc; p < &p[NPROC]; p++){
+    // acquire(&p->lock);
+    if(p->state != UNUSED)
+      count++;
+    // release(&p->lock);
+  }
+
+  return count;
+}
