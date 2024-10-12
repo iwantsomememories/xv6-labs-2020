@@ -30,16 +30,6 @@ procinit(void)
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
   }
   kvminithart();
 }
@@ -127,6 +117,23 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // Initialize the kernel page table of process
+  p->kernel_pt = proc_kpt_init();
+  if(p->kernel_pt == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Allocate a page for the process's kernel stack.
+  // Map it in process's kernel page table.
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  uvmmap(p->kernel_pt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
   return p;
 }
 
@@ -142,6 +149,15 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+
+  // Free kernel page table and kernel stack.
+  if(p->kernel_pt){
+    uvmunmap(p->kernel_pt, p->kstack, 1, 1);
+    p->kstack = 0;
+    proc_free_kpt(p->kernel_pt);
+  }
+  p->kernel_pt = 0;
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -473,7 +489,14 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // Switch kernel page table.
+        proc_inithart(p->kernel_pt);
+
         swtch(&c->context, &p->context);
+
+        // Come back to the global kernel page table.
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

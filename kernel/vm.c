@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -47,12 +49,41 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+// Create a kernel pagetable for process
+pagetable_t
+proc_kpt_init(){
+  pagetable_t pt = uvmcreate();
+  if(pt == 0) return 0;
+
+  // do the same things in kvminit
+  uvmmap(pt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(pt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(pt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(pt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(pt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(pt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  // printf("DEBUG\n");
+  // vmprint(pt);
+
+  return pt;
+}
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
 kvminithart()
 {
   w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
+}
+
+// Follow the kvminithart.
+void
+proc_inithart(pagetable_t pt)
+{
+  w_satp(MAKE_SATP(pt));
   sfence_vma();
 }
 
@@ -132,7 +163,8 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  struct proc *p = myproc();
+  pte = walk(p->kernel_pt, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
@@ -165,6 +197,14 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     pa += PGSIZE;
   }
   return 0;
+}
+
+// Follow the kvmmap
+void
+uvmmap(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pt, va, sz, pa, perm) != 0)
+    panic("uvmmap");
 }
 
 // Remove npages of mappings starting from va. va must be
@@ -287,6 +327,25 @@ freewalk(pagetable_t pagetable)
     }
   }
   kfree((void*)pagetable);
+}
+
+// Recursively free kernel page-table pages of process, 
+// not including leaf pages.
+void
+proc_free_kpt(pagetable_t kpt){
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = kpt[i];
+    if((pte & PTE_V) == 0){
+      kpt[i] = 0;
+      // this PTE points to a lower-level page table.
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        freewalk((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*)kpt);
 }
 
 // Free user memory pages,
@@ -439,4 +498,34 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Print the content of pagetable
+void
+vmprint(pagetable_t pt){
+  printf("page table %p\n", pt);
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pt[i];
+    if((pte & PTE_V) == 0)
+      continue;
+    printf("..%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+    pagetable_t next_pt = (pagetable_t)PTE2PA(pte);
+    for (int j = 0; j < 512; j++)
+    {
+      pte_t pte_1 = next_pt[j];
+      if((pte_1 & PTE_V) == 0)
+        continue;
+      printf(".. ..%d: pte %p pa %p\n", j, pte_1, PTE2PA(pte_1));
+      pagetable_t next_next_pt = (pagetable_t)PTE2PA(pte_1);
+      for (int k = 0; k < 512; k++)
+      {
+        pte_t pte_2 = next_next_pt[k];
+        if((pte_2 & PTE_V) == 0)
+          continue;
+        printf(".. .. ..%d: pte %p pa %p\n", k, pte_2, PTE2PA(pte_2));
+      }
+    }
+  }
+  return;
 }
