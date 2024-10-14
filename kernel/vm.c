@@ -336,12 +336,12 @@ proc_free_kpt(pagetable_t kpt){
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = kpt[i];
-    if((pte & PTE_V) == 0){
+    if(pte & PTE_V){
       kpt[i] = 0;
       // this PTE points to a lower-level page table.
       if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
         uint64 child = PTE2PA(pte);
-        freewalk((pagetable_t)child);
+        proc_free_kpt((pagetable_t)child);
       }
     }
   }

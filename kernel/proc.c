@@ -150,10 +150,11 @@ freeproc(struct proc *p)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
 
+  uvmunmap(p->kernel_pt, p->kstack, 1, 1);
+  p->kstack = 0;
+
   // Free kernel page table and kernel stack.
   if(p->kernel_pt){
-    uvmunmap(p->kernel_pt, p->kstack, 1, 1);
-    p->kstack = 0;
     proc_free_kpt(p->kernel_pt);
   }
   p->kernel_pt = 0;
