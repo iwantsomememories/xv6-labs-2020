@@ -260,9 +260,14 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    // Add the limit of PLIC
+    if(PGROUNDUP(sz+n) >= PLIC)
+      return -1;
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // Copy the update of user mappings to the kernel page-table.
+    upt2kpt_copy(p->pagetable, p->kernel_pt, sz-n, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -293,6 +298,9 @@ fork(void)
   np->sz = p->sz;
 
   np->parent = p;
+
+  // Copy user mappings to the kernel page-table of child.
+  upt2kpt_copy(np->pagetable, np->kernel_pt, 0, np->sz);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

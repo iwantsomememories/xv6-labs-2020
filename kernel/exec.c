@@ -75,6 +75,9 @@ exec(char *path, char **argv)
   sp = sz;
   stackbase = sp - PGSIZE;
 
+  // Copy user mappings to the kernel page-table.
+  upt2kpt_copy(pagetable, p->kernel_pt, 0, sz);
+
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
