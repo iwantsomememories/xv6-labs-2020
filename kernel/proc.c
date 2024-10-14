@@ -111,12 +111,6 @@ found:
     return 0;
   }
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
-  memset(&p->context, 0, sizeof(p->context));
-  p->context.ra = (uint64)forkret;
-  p->context.sp = p->kstack + PGSIZE;
-
   // Initialize the kernel page table of process
   p->kernel_pt = proc_kpt_init();
   if(p->kernel_pt == 0){
@@ -133,6 +127,12 @@ found:
   uint64 va = KSTACK((int) (p - proc));
   uvmmap(p->kernel_pt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
+
+  // Set up new context to start executing at forkret,
+  // which returns to user space.
+  memset(&p->context, 0, sizeof(p->context));
+  p->context.ra = (uint64)forkret;
+  p->context.sp = p->kstack + PGSIZE;
 
   return p;
 }
